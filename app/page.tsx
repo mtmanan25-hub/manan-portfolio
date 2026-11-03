@@ -150,7 +150,7 @@ export default function Home() {
         educationResult,
       ] = await Promise.all([
         supabase
-          .from("public_profile")
+          .from("profile")
           .select("*")
           .limit(1)
           .maybeSingle(),
