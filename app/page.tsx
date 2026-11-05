@@ -22,7 +22,7 @@ type Project = {
   title: string;
   description: string | null;
   image_url: string | null;
-  project_url: string | null;
+  live_url: string | null;
   github_url: string | null;
   technologies: string[] | null;
   published: boolean;
@@ -528,9 +528,9 @@ export default function Home() {
                       )}
 
                     <div className="mt-7 flex flex-wrap gap-5 text-sm">
-                      {project.project_url && (
+                      {project.live_url && (
                         <a
-                          href={project.project_url}
+                          href={project.live_url}
                           target="_blank"
                           rel="noreferrer"
                           className="font-medium text-[var(--accent)] hover:text-[var(--accent-strong)]"
@@ -538,6 +538,13 @@ export default function Home() {
                           View project →
                         </a>
                       )}
+
+                      <Link
+                        href={`/projects/${project.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`}
+                        className="font-medium text-[var(--foreground)] hover:text-[var(--accent)]"
+                      >
+                        Case study →
+                      </Link>
 
                       {project.github_url && (
                         <a
