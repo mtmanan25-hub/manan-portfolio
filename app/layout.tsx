@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import ThemeToggle from "@/components/theme-toggle";
+import AnalyticsTracker from "@/components/analytics-tracker";
 
 export const metadata: Metadata = {
   metadataBase: new URL(
@@ -74,7 +75,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="antialiased">
+        <AnalyticsTracker />
+
         {children}
+
         <ThemeToggle />
       </body>
     </html>

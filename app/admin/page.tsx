@@ -13,6 +13,21 @@ export async function signOutAction() {
   redirect("/auth/login");
 }
 
+function getStartOfDay(daysAgo = 0) {
+  const date = new Date();
+
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - daysAgo);
+
+  return date.toISOString();
+}
+
+function getDateLabel(dateString: string) {
+  return new Date(dateString).toLocaleDateString("en-US", {
+    weekday: "short",
+  });
+}
+
 async function AdminDashboard() {
   const supabase = await createClient();
 
@@ -30,11 +45,18 @@ async function AdminDashboard() {
     redirect("/");
   }
 
+  /*
+   * ---------------------------------------------------------
+   * CONTENT COUNTS
+   * ---------------------------------------------------------
+   */
+
   const [
     projectsResult,
     skillsResult,
     educationResult,
     messagesResult,
+    visitsResult,
   ] = await Promise.all([
     supabase
       .from("projects")
@@ -52,7 +74,126 @@ async function AdminDashboard() {
       .from("contact_submissions")
       .select("*", { count: "exact", head: true })
       .eq("is_read", false),
+
+    supabase
+      .from("site_visits")
+      .select("visitor_id, created_at, path, device_type")
+      .order("created_at", { ascending: false }),
   ]);
+
+  /*
+   * ---------------------------------------------------------
+   * VISITOR ANALYTICS
+   * ---------------------------------------------------------
+   */
+
+  const visits = visitsResult.data ?? [];
+
+  const uniqueVisitors = new Set(
+    visits
+      .map((visit) => visit.visitor_id)
+      .filter(Boolean)
+  ).size;
+
+  const todayStart = getStartOfDay(0);
+  const weekStart = getStartOfDay(6);
+  const monthStart = getStartOfDay(29);
+
+  const todayVisitors = new Set(
+    visits
+      .filter((visit) => visit.created_at >= todayStart)
+      .map((visit) => visit.visitor_id)
+      .filter(Boolean)
+  ).size;
+
+  const weekVisitors = new Set(
+    visits
+      .filter((visit) => visit.created_at >= weekStart)
+      .map((visit) => visit.visitor_id)
+      .filter(Boolean)
+  ).size;
+
+  const monthVisitors = new Set(
+    visits
+      .filter((visit) => visit.created_at >= monthStart)
+      .map((visit) => visit.visitor_id)
+      .filter(Boolean)
+  ).size;
+
+  /*
+   * Popular pages
+   */
+
+  const pageCounts: Record<string, number> = {};
+
+  for (const visit of visits) {
+    const path = visit.path || "/";
+
+    pageCounts[path] = (pageCounts[path] || 0) + 1;
+  }
+
+  const popularPages = Object.entries(pageCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  /*
+   * Device breakdown
+   */
+
+  const deviceCounts: Record<string, number> = {
+    desktop: 0,
+    mobile: 0,
+    tablet: 0,
+  };
+
+  for (const visit of visits) {
+    const device = visit.device_type;
+
+    if (device && device in deviceCounts) {
+      deviceCounts[device]++;
+    }
+  }
+
+  /*
+   * 7-day chart
+   */
+
+  const chartData = [];
+
+  for (let i = 6; i >= 0; i--) {
+    const start = getStartOfDay(i);
+
+    const endDate = new Date();
+    endDate.setHours(0, 0, 0, 0);
+    endDate.setDate(endDate.getDate() - i + 1);
+
+    const end = endDate.toISOString();
+
+    const dayVisitors = new Set(
+      visits
+        .filter(
+          (visit) =>
+            visit.created_at >= start &&
+            visit.created_at < end
+        )
+        .map((visit) => visit.visitor_id)
+        .filter(Boolean)
+    ).size;
+
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - i);
+
+    chartData.push({
+      label: getDateLabel(date.toISOString()),
+      value: dayVisitors,
+    });
+  }
+
+  const maxChartValue = Math.max(
+    ...chartData.map((day) => day.value),
+    1
+  );
 
   const stats = [
     {
@@ -85,42 +226,48 @@ async function AdminDashboard() {
     {
       number: "01",
       name: "Projects",
-      description: "Create and manage the projects shown on your portfolio.",
+      description:
+        "Create and manage the projects shown on your portfolio.",
       href: "/admin/projects",
       icon: "↗",
     },
     {
       number: "02",
       name: "Skills",
-      description: "Manage programming languages, tools and technologies.",
+      description:
+        "Manage programming languages, tools and technologies.",
       href: "/admin/skills",
       icon: "⌘",
     },
     {
       number: "03",
       name: "Social links",
-      description: "Control the social platforms displayed on your website.",
+      description:
+        "Control the social platforms displayed on your website.",
       href: "/admin/socials",
       icon: "◎",
     },
     {
       number: "04",
       name: "Education",
-      description: "Add and manage your education and achievements.",
+      description:
+        "Add and manage your education and achievements.",
       href: "/admin/education",
       icon: "◇",
     },
     {
       number: "05",
       name: "Messages",
-      description: "Read messages submitted through your contact form.",
+      description:
+        "Read messages submitted through your contact form.",
       href: "/admin/messages",
       icon: "□",
     },
     {
       number: "06",
       name: "Profile",
-      description: "Update your bio, profile details and profile picture.",
+      description:
+        "Update your bio, profile details and profile picture.",
       href: "/admin/profile",
       icon: "○",
     },
@@ -197,6 +344,7 @@ async function AdminDashboard() {
                 <span className="w-5 text-center text-sm text-white/30">
                   □
                 </span>
+
                 Messages
               </span>
 
@@ -301,7 +449,7 @@ async function AdminDashboard() {
               </div>
             </section>
 
-            {/* STATS */}
+            {/* CONTENT STATS */}
             <section className="border-b border-white/[0.08] py-8">
 
               <div className="mb-5 flex items-center justify-between">
@@ -335,7 +483,6 @@ async function AdminDashboard() {
                       <span className="text-white/15 transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-[#c5f467]">
                         ↗
                       </span>
-
                     </div>
 
                     <p className="mt-7 text-4xl font-semibold tracking-[-0.04em]">
@@ -353,7 +500,260 @@ async function AdminDashboard() {
               </div>
             </section>
 
+            {/* ANALYTICS */}
+            <section className="border-b border-white/[0.08] py-10">
+
+              <div className="mb-7 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-[#c5f467]">
+                    Analytics
+                  </p>
+
+                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
+                    Visitors
+                  </h2>
+
+                  <p className="mt-2 text-sm text-white/35">
+                    One visitor is counted once per browser.
+                  </p>
+                </div>
+
+                <span className="text-xs text-white/25">
+                  {uniqueVisitors} total unique visitors
+                </span>
+              </div>
+
+              {/* VISITOR NUMBERS */}
+
+              <div className="grid border border-white/[0.08] sm:grid-cols-4">
+
+                <div className="p-5">
+                  <p className="text-xs text-white/30">
+                    Total
+                  </p>
+
+                  <p className="mt-3 text-3xl font-semibold">
+                    {uniqueVisitors}
+                  </p>
+                </div>
+
+                <div className="border-t border-white/[0.08] p-5 sm:border-l sm:border-t-0">
+                  <p className="text-xs text-white/30">
+                    Today
+                  </p>
+
+                  <p className="mt-3 text-3xl font-semibold">
+                    {todayVisitors}
+                  </p>
+                </div>
+
+                <div className="border-t border-white/[0.08] p-5 sm:border-l sm:border-t-0">
+                  <p className="text-xs text-white/30">
+                    Last 7 days
+                  </p>
+
+                  <p className="mt-3 text-3xl font-semibold">
+                    {weekVisitors}
+                  </p>
+                </div>
+
+                <div className="border-t border-white/[0.08] p-5 sm:border-l sm:border-t-0">
+                  <p className="text-xs text-white/30">
+                    Last 30 days
+                  </p>
+
+                  <p className="mt-3 text-3xl font-semibold">
+                    {monthVisitors}
+                  </p>
+                </div>
+
+              </div>
+
+              {/* 7 DAY CHART */}
+
+              <div className="mt-6 border border-white/[0.08] p-5 sm:p-7">
+
+                <div className="mb-8 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">
+                      Visitor activity
+                    </p>
+
+                    <p className="mt-1 text-xs text-white/25">
+                      Unique visitors over the last 7 days
+                    </p>
+                  </div>
+
+                  <span className="h-2 w-2 bg-[#c5f467]" />
+                </div>
+
+                <div className="flex h-48 items-end gap-2 sm:gap-4">
+
+                  {chartData.map((day) => {
+                    const height =
+                      day.value === 0
+                        ? 3
+                        : Math.max(
+                            (day.value / maxChartValue) * 100,
+                            8
+                          );
+
+                    return (
+                      <div
+                        key={day.label}
+                        className="flex h-full flex-1 flex-col items-center justify-end gap-3"
+                      >
+                        <span className="text-[10px] text-white/30">
+                          {day.value}
+                        </span>
+
+                        <div className="flex h-full w-full items-end">
+                          <div
+                            className="w-full bg-[#c5f467] transition-all duration-500"
+                            style={{
+                              height: `${height}%`,
+                              opacity:
+                                day.value === 0 ? 0.15 : 0.85,
+                            }}
+                          />
+                        </div>
+
+                        <span className="text-[10px] text-white/25">
+                          {day.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+
+                </div>
+              </div>
+
+              {/* PAGE + DEVICE DATA */}
+
+              <div className="mt-6 grid gap-6 lg:grid-cols-2">
+
+                {/* POPULAR PAGES */}
+
+                <div className="border border-white/[0.08] p-5 sm:p-7">
+
+                  <div className="mb-6">
+                    <p className="text-sm font-medium">
+                      Popular pages
+                    </p>
+
+                    <p className="mt-1 text-xs text-white/25">
+                      Pages opened by visitors
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+
+                    {popularPages.length === 0 ? (
+                      <p className="text-sm text-white/25">
+                        No visitor data yet.
+                      </p>
+                    ) : (
+                      popularPages.map(([path, count], index) => (
+                        <div
+                          key={path}
+                          className="flex items-center gap-4"
+                        >
+                          <span className="w-5 text-xs text-white/20">
+                            0{index + 1}
+                          </span>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-4">
+                              <span className="truncate text-sm text-white/70">
+                                {path}
+                              </span>
+
+                              <span className="text-xs text-white/30">
+                                {count}
+                              </span>
+                            </div>
+
+                            <div className="mt-2 h-px bg-white/[0.08]">
+                              <div
+                                className="h-px bg-[#c5f467]"
+                                style={{
+                                  width: `${Math.min(
+                                    (count /
+                                      (popularPages[0]?.[1] || 1)) *
+                                      100,
+                                    100
+                                  )}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+
+                  </div>
+                </div>
+
+                {/* DEVICES */}
+
+                <div className="border border-white/[0.08] p-5 sm:p-7">
+
+                  <div className="mb-6">
+                    <p className="text-sm font-medium">
+                      Devices
+                    </p>
+
+                    <p className="mt-1 text-xs text-white/25">
+                      Visitor device breakdown
+                    </p>
+                  </div>
+
+                  <div className="space-y-5">
+
+                    {Object.entries(deviceCounts).map(
+                      ([device, count]) => {
+                        const percentage =
+                          visits.length > 0
+                            ? Math.round(
+                                (count / visits.length) * 100
+                              )
+                            : 0;
+
+                        return (
+                          <div key={device}>
+
+                            <div className="mb-2 flex justify-between">
+                              <span className="text-sm capitalize text-white/60">
+                                {device}
+                              </span>
+
+                              <span className="text-xs text-white/30">
+                                {percentage}%
+                              </span>
+                            </div>
+
+                            <div className="h-1 bg-white/[0.08]">
+                              <div
+                                className="h-1 bg-[#c5f467]"
+                                style={{
+                                  width: `${percentage}%`,
+                                }}
+                              />
+                            </div>
+
+                          </div>
+                        );
+                      }
+                    )}
+
+                  </div>
+                </div>
+
+              </div>
+            </section>
+
             {/* MANAGEMENT */}
+
             <section className="py-10">
 
               <div className="mb-6 flex items-end justify-between">
@@ -383,7 +783,9 @@ async function AdminDashboard() {
                     } ${
                       index >= 3 ? "border-t" : ""
                     } ${
-                      index % 2 !== 0 ? "sm:border-l lg:border-l" : ""
+                      index % 2 !== 0
+                        ? "sm:border-l lg:border-l"
+                        : ""
                     }`}
                   >
 
@@ -422,6 +824,7 @@ async function AdminDashboard() {
             </section>
 
             {/* QUICK ACTIONS */}
+
             <section className="border-t border-white/[0.08] py-8">
 
               <p className="mb-5 text-xs uppercase tracking-[0.18em] text-white/30">
@@ -462,6 +865,7 @@ async function AdminDashboard() {
             </section>
 
             {/* FOOTER */}
+
             <footer className="flex flex-col gap-2 border-t border-white/[0.08] pt-6 text-[11px] text-white/20 sm:flex-row sm:items-center sm:justify-between">
               <span>Portfolio Control Panel</span>
               <span>manankhatri.xyz</span>

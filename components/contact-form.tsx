@@ -1,7 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+
+const DRAFT_KEY = "manan_contact_draft";
+const VISITOR_KEY = "manan_visitor_id";
+
+type DraftData = {
+    draftToken: string;
+    visitorId: string;
+    name: string;
+    email: string;
+    message: string;
+};
 
 export default function ContactForm() {
     const [name, setName] = useState("");
@@ -9,6 +20,151 @@ export default function ContactForm() {
     const [message, setMessage] = useState("");
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState("");
+
+    const draftRef = useRef<DraftData | null>(null);
+    const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        try {
+            let visitorId = localStorage.getItem(VISITOR_KEY);
+
+            if (!visitorId) {
+                visitorId = crypto.randomUUID();
+                localStorage.setItem(VISITOR_KEY, visitorId);
+            }
+
+            const savedDraft = localStorage.getItem(DRAFT_KEY);
+
+            if (savedDraft) {
+                const draft = JSON.parse(savedDraft) as DraftData;
+
+                if (draft?.draftToken) {
+                    draftRef.current = {
+                        ...draft,
+                        visitorId,
+                    };
+
+                    setName(draft.name || "");
+                    setEmail(draft.email || "");
+                    setMessage(draft.message || "");
+                }
+            }
+        } catch (error) {
+            console.error("DRAFT LOAD ERROR:", error);
+        }
+
+        return () => {
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+            }
+        };
+    }, []);
+
+    function getDraft() {
+        if (!draftRef.current) {
+            const visitorId =
+                localStorage.getItem(VISITOR_KEY) || crypto.randomUUID();
+
+            localStorage.setItem(VISITOR_KEY, visitorId);
+
+            draftRef.current = {
+                draftToken: crypto.randomUUID(),
+                visitorId,
+                name: "",
+                email: "",
+                message: "",
+            };
+        }
+
+        return draftRef.current;
+    }
+
+    function saveDraft(
+        nextName: string,
+        nextEmail: string,
+        nextMessage: string
+    ) {
+        if (
+            !nextName.trim() &&
+            !nextEmail.trim() &&
+            !nextMessage.trim()
+        ) {
+            return;
+        }
+
+        const draft = getDraft();
+
+        draft.name = nextName;
+        draft.email = nextEmail;
+        draft.message = nextMessage;
+
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+
+        if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+        }
+
+        saveTimeoutRef.current = setTimeout(async () => {
+            try {
+                await fetch("/api/contact/draft", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify(draft),
+                    keepalive: true,
+                });
+            } catch (error) {
+                console.error("DRAFT SAVE ERROR:", error);
+            }
+        }, 700);
+    }
+
+    function handleNameChange(value: string) {
+        setName(value);
+        saveDraft(value, email, message);
+    }
+
+    function handleEmailChange(value: string) {
+        setEmail(value);
+        saveDraft(name, value, message);
+    }
+
+    function handleMessageChange(value: string) {
+        setMessage(value);
+        saveDraft(name, email, value);
+    }
+
+    useEffect(() => {
+        function handleLeave() {
+            const draft = draftRef.current;
+
+            if (!draft) return;
+
+            if (
+                !draft.name.trim() &&
+                !draft.email.trim() &&
+                !draft.message.trim()
+            ) {
+                return;
+            }
+
+            const payload = JSON.stringify(draft);
+
+            navigator.sendBeacon(
+                "/api/contact/draft/abandon",
+                new Blob([payload], {
+                    type: "application/json",
+                })
+            );
+        }
+
+        window.addEventListener("pagehide", handleLeave);
+
+        return () => {
+            window.removeEventListener("pagehide", handleLeave);
+        };
+    }, []);
 
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
@@ -43,7 +199,6 @@ export default function ContactForm() {
         try {
             const supabase = createClient();
 
-            // Save message to Supabase
             const { error: databaseError } = await supabase
                 .from("contact_submissions")
                 .insert({
@@ -54,7 +209,6 @@ export default function ContactForm() {
 
             if (databaseError) {
                 console.error("SUPABASE ERROR:", databaseError);
-
                 setStatus("Could not save your message.");
                 setLoading(false);
                 return;
@@ -62,7 +216,6 @@ export default function ContactForm() {
 
             console.log("MESSAGE SAVED TO SUPABASE");
 
-            // Send emails
             const response = await fetch("/api/contact", {
                 method: "POST",
                 headers: {
@@ -89,6 +242,28 @@ export default function ContactForm() {
                 return;
             }
 
+            const draft = draftRef.current;
+
+            if (draft) {
+                try {
+                    await fetch("/api/contact/draft/delete", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            draftToken: draft.draftToken,
+                        }),
+                    });
+                } catch (error) {
+                    console.error("DRAFT DELETE ERROR:", error);
+                }
+            }
+
+            localStorage.removeItem(DRAFT_KEY);
+
+            draftRef.current = null;
+
             setName("");
             setEmail("");
             setMessage("");
@@ -96,7 +271,6 @@ export default function ContactForm() {
             setStatus("Message sent successfully!");
         } catch (error) {
             console.error("CONTACT FORM ERROR:", error);
-
             setStatus("Something went wrong. Please try again.");
         }
 
@@ -108,7 +282,6 @@ export default function ContactForm() {
             onSubmit={handleSubmit}
             className="relative space-y-5"
         >
-            {/* Name */}
             <div>
                 <label
                     htmlFor="contact-name"
@@ -121,7 +294,7 @@ export default function ContactForm() {
                     id="contact-name"
                     type="text"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => handleNameChange(e.target.value)}
                     placeholder="Your name"
                     required
                     disabled={loading}
@@ -129,7 +302,6 @@ export default function ContactForm() {
                 />
             </div>
 
-            {/* Email */}
             <div>
                 <label
                     htmlFor="contact-email"
@@ -142,7 +314,7 @@ export default function ContactForm() {
                     id="contact-email"
                     type="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => handleEmailChange(e.target.value)}
                     placeholder="you@example.com"
                     required
                     disabled={loading}
@@ -150,7 +322,6 @@ export default function ContactForm() {
                 />
             </div>
 
-            {/* Message */}
             <div>
                 <label
                     htmlFor="contact-message"
@@ -162,7 +333,7 @@ export default function ContactForm() {
                 <textarea
                     id="contact-message"
                     value={message}
-                    onChange={(e) => setMessage(e.target.value)}
+                    onChange={(e) => handleMessageChange(e.target.value)}
                     placeholder="Write your message..."
                     rows={6}
                     required
@@ -171,7 +342,6 @@ export default function ContactForm() {
                 />
             </div>
 
-            {/* Button */}
             <button
                 type="submit"
                 disabled={loading}
@@ -180,7 +350,6 @@ export default function ContactForm() {
                 {loading ? "Sending..." : "Send Message"}
             </button>
 
-            {/* Status */}
             {status && (
                 <p
                     className="text-sm text-[var(--muted)]"
