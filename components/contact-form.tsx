@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -8,141 +7,184 @@ export default function ContactForm() {
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [message, setMessage] = useState("");
-    const [website, setWebsite] = useState("");
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState("");
 
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
+
+        console.log("SEND BUTTON CLICKED");
+
         setStatus("");
 
-        if (website) return;
+        if (loading) return;
 
         const cleanName = name.trim();
         const cleanEmail = email.trim();
         const cleanMessage = message.trim();
 
-        if (
-            cleanName.length < 1 ||
-            cleanName.length > 80 ||
-            cleanEmail.length < 5 ||
-            cleanEmail.length > 254 ||
-            !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail) ||
-            cleanMessage.length < 10 ||
-            cleanMessage.length > 3000
-        ) {
-            setStatus("Please check your details and try again.");
+        if (!cleanName || !cleanEmail || !cleanMessage) {
+            setStatus("Please fill in all fields.");
+            return;
+        }
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+            setStatus("Please enter a valid email address.");
+            return;
+        }
+
+        if (cleanMessage.length < 10) {
+            setStatus("Message must be at least 10 characters.");
             return;
         }
 
         setLoading(true);
 
-        const supabase = createClient();
+        try {
+            const supabase = createClient();
 
-        const { error } = await supabase
-            .from("contact_submissions")
-            .insert({
-                name: cleanName,
-                email: cleanEmail,
-                message: cleanMessage,
+            // Save message to Supabase
+            const { error: databaseError } = await supabase
+                .from("contact_submissions")
+                .insert({
+                    name: cleanName,
+                    email: cleanEmail,
+                    message: cleanMessage,
+                });
+
+            if (databaseError) {
+                console.error("SUPABASE ERROR:", databaseError);
+
+                setStatus("Could not save your message.");
+                setLoading(false);
+                return;
+            }
+
+            console.log("MESSAGE SAVED TO SUPABASE");
+
+            // Send emails
+            const response = await fetch("/api/contact", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    name: cleanName,
+                    email: cleanEmail,
+                    message: cleanMessage,
+                }),
             });
 
-        if (error) {
-            setStatus("Something went wrong. Please try again.");
-        } else {
+            const result = await response.json();
+
+            console.log("EMAIL API RESPONSE:", result);
+
+            if (!response.ok) {
+                setStatus(
+                    result?.error ||
+                        "Message saved, but email could not be sent."
+                );
+
+                setLoading(false);
+                return;
+            }
+
             setName("");
             setEmail("");
             setMessage("");
-            setStatus("Message sent. Thanks for reaching out!");
+
+            setStatus("Message sent successfully!");
+        } catch (error) {
+            console.error("CONTACT FORM ERROR:", error);
+
+            setStatus("Something went wrong. Please try again.");
         }
 
         setLoading(false);
     }
 
     return (
-        <form onSubmit={handleSubmit} className="relative space-y-5">
+        <form
+            onSubmit={handleSubmit}
+            className="relative space-y-5"
+        >
+            {/* Name */}
             <div>
-                <label className="mb-2 block text-sm text-[var(--muted)]">
-                    Your name
+                <label
+                    htmlFor="contact-name"
+                    className="mb-2 block text-sm font-medium text-[var(--foreground)]"
+                >
+                    Name
                 </label>
+
                 <input
+                    id="contact-name"
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    maxLength={80}
+                    placeholder="Your name"
                     required
-                    placeholder="Enter your name"
-                    className="w-full border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus:border-[var(--accent)]"
+                    disabled={loading}
+                    className="w-full border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[var(--foreground)] outline-none transition focus:border-[var(--accent)]"
                 />
             </div>
 
+            {/* Email */}
             <div>
-                <label className="mb-2 block text-sm text-[var(--muted)]">
-                    Email address
+                <label
+                    htmlFor="contact-email"
+                    className="mb-2 block text-sm font-medium text-[var(--foreground)]"
+                >
+                    Email
                 </label>
+
                 <input
+                    id="contact-email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    maxLength={254}
-                    required
                     placeholder="you@example.com"
-                    className="w-full border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus:border-[var(--accent)]"
+                    required
+                    disabled={loading}
+                    className="w-full border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[var(--foreground)] outline-none transition focus:border-[var(--accent)]"
                 />
             </div>
 
+            {/* Message */}
             <div>
-                <label className="mb-2 block text-sm text-[var(--muted)]">
+                <label
+                    htmlFor="contact-message"
+                    className="mb-2 block text-sm font-medium text-[var(--foreground)]"
+                >
                     Message
                 </label>
+
                 <textarea
+                    id="contact-message"
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
-                    minLength={10}
-                    maxLength={3000}
+                    placeholder="Write your message..."
+                    rows={6}
                     required
-                    rows={5}
-                    placeholder="Tell me what you have in mind..."
-                    className="w-full resize-y border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted)] focus:border-[var(--accent)]"
+                    disabled={loading}
+                    className="w-full resize-none border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-[var(--foreground)] outline-none transition focus:border-[var(--accent)]"
                 />
-                <p className="mt-1 text-right text-xs text-[var(--muted)]">
-                    {message.length}/3000
-                </p>
             </div>
 
-            {/* Honeypot — hidden from real users */}
-            <div
-                aria-hidden="true"
-                className="absolute -left-[9999px] h-0 w-0 overflow-hidden"
-            >
-                <label>
-                    Leave this field empty
-                    <input
-                        type="text"
-                        tabIndex={-1}
-                        autoComplete="off"
-                        value={website}
-                        onChange={(e) => setWebsite(e.target.value)}
-                    />
-                </label>
-            </div>
-
+            {/* Button */}
             <button
                 type="submit"
                 disabled={loading}
-                className="border border-[var(--foreground)] bg-[var(--foreground)] px-6 py-3 text-sm font-medium text-[var(--background)] transition-all duration-300 hover:border-[var(--accent)] hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                className="relative z-10 cursor-pointer border border-[var(--accent)] bg-[var(--accent)] px-6 py-3 font-semibold text-[var(--background)] transition hover:bg-transparent hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
             >
-                {loading ? "Sending..." : "Send message →"}
+                {loading ? "Sending..." : "Send Message"}
             </button>
 
+            {/* Status */}
             {status && (
                 <p
-                    role="status"
-                    className={`text-sm ${
-                        status.startsWith("Message sent")
-                            ? "text-[var(--accent)]"
-                            : "text-[var(--muted)]"
-                    }`}
+                    className="text-sm text-[var(--muted)]"
+                    aria-live="polite"
                 >
                     {status}
                 </p>
