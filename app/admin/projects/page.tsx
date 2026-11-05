@@ -85,6 +85,14 @@ async function ProjectsManager() {
                   </span>
 
                   <Link
+                    href={`/projects/${project.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`}
+                    target="_blank"
+                    className="rounded-lg border border-white/15 px-4 py-2 text-sm transition-colors hover:border-[#c5f467] hover:text-[#c5f467]"
+                  >
+                    Preview ↗
+                  </Link>
+
+                  <Link
                     href={`/admin/projects/${project.id}`}
                     className="rounded-lg border border-white/15 px-4 py-2 text-sm transition-colors hover:border-[#c5f467] hover:text-[#c5f467]"
                   >
